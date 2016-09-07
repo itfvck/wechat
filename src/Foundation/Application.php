@@ -25,10 +25,12 @@
  */
 namespace EasyWeChat\Foundation;
 
+use Doctrine\Common\Cache\Cache as CacheInterface;
 use Doctrine\Common\Cache\FilesystemCache;
 use EasyWeChat\Core\AccessToken;
 use EasyWeChat\Core\Http;
 use EasyWeChat\Support\Log;
+use Monolog\Handler\HandlerInterface;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
@@ -59,6 +61,7 @@ use Symfony\Component\HttpFoundation\Request;
  * @property \EasyWeChat\Payment\MerchantPay\MerchantPay $merchant_pay
  * @property \EasyWeChat\Reply\Reply                     $reply
  * @property \EasyWeChat\Broadcast\Broadcast             $broadcast
+ * @property \EasyWeChat\Card\Card                       $card
  */
 class Application extends Container
 {
@@ -84,6 +87,7 @@ class Application extends Container
         ServiceProviders\POIServiceProvider::class,
         ServiceProviders\ReplyServiceProvider::class,
         ServiceProviders\BroadcastServiceProvider::class,
+        ServiceProviders\CardServiceProvider::class,
     ];
 
     /**
@@ -196,16 +200,20 @@ class Application extends Container
             return Request::createFromGlobals();
         };
 
-        $this['cache'] = function () {
-            return new FilesystemCache(sys_get_temp_dir());
-        };
+        if (!empty($this['config']['cache']) && $this['config']['cache'] instanceof CacheInterface) {
+            $this['cache'] = $this['config']['cache'];
+        } else {
+            $this['cache'] = function () {
+                return new FilesystemCache(sys_get_temp_dir());
+            };
+        }
 
         $this['access_token'] = function () {
             return new AccessToken(
-               $this['config']['app_id'],
-               $this['config']['secret'],
-               $this['cache']
-           );
+                $this['config']['app_id'],
+                $this['config']['secret'],
+                $this['cache']
+            );
         };
     }
 
@@ -222,6 +230,8 @@ class Application extends Container
 
         if (!$this['config']['debug'] || defined('PHPUNIT_RUNNING')) {
             $logger->pushHandler(new NullHandler());
+        } elseif ($this['config']['log.handler'] instanceof HandlerInterface) {
+            $logger->pushHandler($this['config']['log.handler']);
         } elseif ($logFile = $this['config']['log.file']) {
             $logger->pushHandler(new StreamHandler($logFile, $this['config']->get('log.level', Logger::WARNING)));
         }
